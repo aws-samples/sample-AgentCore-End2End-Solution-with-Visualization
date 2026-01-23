@@ -1,0 +1,62 @@
+# AgentCore 部署配置
+
+project:
+  name: agentcore-demo
+  # region: us-east-1  # 可选，默认使用当前AWS CLI配置的region
+
+cognito:
+  user_pool_name: AgentCoreDemoPool
+  client_name: AgentCoreDemoClient
+  test_user:
+    username: testuser
+    password: MyPassword123!
+
+memory:
+  name: CustomerSupportMemory
+  description: Memory for customer support agent with preferences and semantic storage
+
+gateway:
+  name: customersupport-gw
+  description: Gateway for customer support tools
+
+runtime:
+  agent_name: customer_support_agent
+  entrypoint: agent/customer_support_agent.py
+  requirements_file: agent/requirements.txt
+
+knowledge_base:
+  name: CustomerSupportKB
+  description: Technical support documentation
+  data_folder: knowledge_base_data
+  embedding_model: amazon.titan-embed-text-v2:0
+
+lambda_function:
+  name: CustomerSupportLambda
+  handler: lambda_function.lambda_handler
+  runtime: python3.12
+  timeout: 60
+  memory_size: 256
+
+dynamodb:
+  warranty_table: CustomerSupport-Warranty
+  customer_table: CustomerSupport-Customer
+
+frontend:
+  build_command: npm run build
+  build_dir: dist
+  deploy_to_s3: true  # 改为true启用CloudFront部署
+
+# 测试数据配置
+test_data:
+  populate_on_deploy: true
+  customer_count: 5
+  warranty_count: 8
+
+# 自动配置选项（deploy.py会自动执行）
+auto_configure:
+  enable_web_client_auth: true  # 自动启用Web Client的USER_PASSWORD_AUTH
+  create_test_user: true  # 自动创建测试用户（testuser@example.com）
+  add_gateway_permissions: true  # 自动添加Gateway权限到Runtime Role
+  add_memory_permissions: true  # 自动添加Memory权限到Runtime Role
+  add_ecr_permissions: true  # 自动添加ECR权限到Runtime Role
+  save_client_secret: true  # 自动保存Machine Client Secret到SSM

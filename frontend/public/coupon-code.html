@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CouponTool Lambda - 代码示例</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 40px;
+        }
+        .section {
+            margin-bottom: 40px;
+        }
+        .section h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f5576c;
+        }
+        .section p {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .alert-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 16px 20px;
+            margin: 16px 0;
+            border-radius: 4px;
+            color: #856404;
+        }
+        .alert-box strong {
+            color: #f5576c;
+            font-size: 18px;
+        }
+        .info-box {
+            background: #d1ecf1;
+            border-left: 4px solid #0dcaf0;
+            padding: 16px 20px;
+            margin: 16px 0;
+            border-radius: 4px;
+            color: #055160;
+        }
+        pre {
+            margin: 16px 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        code {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎫 CouponTool Lambda函数</h1>
+            <p>代金券批复工具 - 展示Policy如何控制金额，而非Lambda代码</p>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>💡 关键发现</h2>
+                <div class="alert-box">
+                    <strong>⚠️ Lambda代码中没有金额限制逻辑!</strong><br><br>
+                    代码只是简单地批复任何金额的代金券，<strong>金额控制完全由AgentCore Policy实现</strong>。
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📝 Lambda函数代码</h2>
+                <pre><code class="language-python">def approve_coupon(amount: float) -> dict:
+    """批复代金券"""
+    if amount <= 0:
+        return {
+            "success": False,
+            "message": f"❌ 金额必须大于0"
+        }
+    
+    # 直接批复，没有金额上限检查
+    return {
+        "success": True,
+        "message": f"✅ 代金券批复成功！金额: ${amount}",
+        "coupon_code": f"COUPON-{int(amount * 100)}",
+        "amount": amount
+    }
+
+def lambda_handler(event, context):
+    """Lambda处理函数"""
+    if resource == "CouponTool":
+        amount = get_named_parameter(event=event, name="amount")
+        amount = float(amount)
+        
+        # 调用批复函数
+        result = approve_coupon(amount)
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps(result)
+        }
+</code></pre>
+            </div>
+
+            <div class="section">
+                <h2>🛡️ AgentCore Policy控制</h2>
+                <div class="info-box">
+                    <strong>Policy配置示例:</strong>
+                    <pre style="background: transparent; margin: 8px 0 0 0;"><code>{
+  "toolName": "CouponTool",
+  "maxAmount": 500,
+  "description": "限制代金券金额不超过$500"
+}</code></pre>
+                </div>
+                <p>
+                    <strong>工作原理</strong>:<br>
+                    1. Agent调用CouponTool请求$100代金券<br>
+                    2. <strong>AgentCore Policy拦截请求</strong>，检查金额<br>
+                    3. 如果超过$500限制，Policy拒绝调用<br>
+                    4. Lambda函数根本不会被执行<br>
+                    5. 这样实现了<strong>集中式、声明式的权限控制</strong>
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>✅ 优势</h2>
+                <p>
+                    • <strong>安全性</strong>: 权限控制在Gateway层，Lambda代码无法绕过<br>
+                    • <strong>灵活性</strong>: 修改Policy配置即可调整限制，无需改代码<br>
+                    • <strong>可审计</strong>: 所有Policy决策都有日志记录<br>
+                    • <strong>统一管理</strong>: 多个工具的权限在一处配置
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        hljs.highlightAll();
+    </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+# 部署生成的文件
+.bedrock_agentcore.yaml
+.dockerignore
+Dockerfile
+deployment_info.yaml
+deploy.log
+lambda.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+
+# Frontend
+frontend/.env
+frontend/dist/
+frontend/node_modules/
+
+# AWS
+.aws/
+repolinter*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时文件
+toDelete_*

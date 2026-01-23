@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentCore Runtime - 代码示例</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 40px;
+        }
+        .section {
+            margin-bottom: 40px;
+        }
+        .section h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+        .section p {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .highlight-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 16px 20px;
+            margin: 16px 0;
+            border-radius: 4px;
+        }
+        .highlight-box strong {
+            color: #667eea;
+        }
+        pre {
+            margin: 16px 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        code {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 14px;
+        }
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 AgentCore Runtime</h1>
+            <p>任意框架构建的Agent，只需几行代码即可在AgentCore Runtime中运行</p>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>1️⃣ Agent代码改动 - 仅需4行</h2>
+                <div class="highlight-box">
+                    <strong>关键点</strong>: 使用 <code>@app.entrypoint</code> 装饰器包装你的agent函数
+                </div>
+                <pre><code class="language-python">from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands import Agent
+
+app = BedrockAgentCoreApp()
+
+@app.entrypoint
+async def invoke(payload, context=None):
+    user_input = payload.get("prompt", "")
+    auth_header = context.request_headers.get('Authorization', '')
+    
+    # 创建你的agent
+    agent = Agent(
+        model=model,
+        tools=tools,
+        system_prompt=SYSTEM_PROMPT,
+    )
+    
+    # 调用agent
+    response = agent(user_input)
+    
+    # 返回结果
+    return {
+        "response": response.message["content"][0]["text"],
+        "events": events,
+    }
+
+if __name__ == "__main__":
+    app.run()
+</code></pre>
+            </div>
+
+            <div class="section">
+                <h2>2️⃣ 配置和部署 - AWS SDK调用</h2>
+                <div class="highlight-box">
+                    <strong>关键点</strong>: 使用AgentCore Starter Toolkit进行配置和部署
+                </div>
+                <pre><code class="language-python">from bedrock_agentcore_starter_toolkit import Runtime
+
+agentcore_runtime = Runtime()
+
+# 配置Runtime
+agentcore_runtime.configure(
+    entrypoint="lab_helpers/lab4_runtime_streaming.py",
+    execution_role=execution_role_arn,
+    auto_create_ecr=True,
+    requirements_file="requirements.txt",
+    region=region,
+    agent_name="customer_support_agent",
+    authorizer_configuration={
+        "customJWTAuthorizer": {
+            "allowedClients": [client_id],
+            "discoveryUrl": discovery_url,
+        }
+    },
+)
+
+# 部署到生产环境
+launch_result = agentcore_runtime.launch(
+    env_vars={"MEMORY_ID": memory_id},
+    auto_update_on_conflict=True
+)
+
+print(f"✅ Runtime deployed: {launch_result.agent_arn}")
+</code></pre>
+            </div>
+
+            <div class="section">
+                <h2>✨ 优势</h2>
+                <div class="highlight-box">
+                    <span class="badge">框架无关</span>
+                    <span class="badge">自动扩展</span>
+                    <span class="badge">完整监控</span>
+                    <span class="badge">安全认证</span>
+                </div>
+                <p>
+                    • <strong>框架无关</strong>: 支持任何Python AI框架 (Strands, LangChain, CrewAI等)<br>
+                    • <strong>自动扩展</strong>: 无需管理服务器,自动处理流量波动<br>
+                    • <strong>完整监控</strong>: 集成CloudWatch Observability<br>
+                    • <strong>安全认证</strong>: 内置JWT认证和权限控制
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        hljs.highlightAll();
+    </script>
+</body>
+</html>
