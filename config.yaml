@@ -52,6 +52,22 @@ test_data:
   customer_count: 5
   warranty_count: 8
 
+# Policy Engine配置
+policy:
+  engine_name: CustomerSupport_PolicyEngine
+  mode: ENFORCE  # ENFORCE 或 LOG_ONLY
+  coupon_limit: 500  # 代金券金额限制（美元）
+
+# CouponTool Lambda配置
+coupon_lambda:
+  name: CustomerSupport_CouponTool
+  role_name: CustomerSupport_CouponTool_Role
+  handler: lambda_function.lambda_handler
+  runtime: python3.12
+  timeout: 30
+  memory_size: 128
+  target_name: CouponToolTarget
+
 # 自动配置选项（deploy.py会自动执行）
 auto_configure:
   enable_web_client_auth: true  # 自动启用Web Client的USER_PASSWORD_AUTH

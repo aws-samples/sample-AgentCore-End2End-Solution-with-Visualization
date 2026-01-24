@@ -22,6 +22,8 @@ from utils.agentcore_helper import (
     delete_agentcore_memory,
     delete_agentcore_gateway,
     delete_agentcore_runtime,
+    delete_policy_engine,
+    delete_coupon_lambda,
 )
 from utils.aws_helper import delete_s3_bucket
 
@@ -61,6 +63,8 @@ class AgentCoreCleanup:
         console.print("\n[bold cyan]将要删除的资源：[/bold cyan]")
         console.print(f"  • Runtime: {self.resources.get('runtime_arn', 'N/A')}")
         console.print(f"  • Gateway: {self.resources.get('gateway_id', 'N/A')}")
+        console.print(f"  • Policy Engine: {self.resources.get('policy_engine_id', 'N/A')}")
+        console.print(f"  • Coupon Lambda: {self.resources.get('coupon_lambda_arn', 'N/A')}")
         console.print(f"  • Memory: {self.resources.get('memory_id', 'N/A')}")
         console.print(f"  • 前端S3: {self.resources.get('frontend_url', 'N/A')}")
 
@@ -84,8 +88,14 @@ class AgentCoreCleanup:
             # 删除Runtime
             self.delete_runtime()
             
-            # 删除Gateway
+            # 删除Gateway (会自动删除Policy Engine关联)
             self.delete_gateway()
+            
+            # 删除Policy Engine
+            self.delete_policy_engine()
+            
+            # 删除Coupon Lambda
+            self.delete_coupon_lambda()
             
             # 删除Memory
             self.delete_memory()
@@ -152,11 +162,42 @@ class AgentCoreCleanup:
 
     def delete_memory(self):
         """删除Memory"""
-        console.print("\n[cyan]步骤 4/4: 删除AgentCore Memory[/cyan]")
+        console.print("\n[cyan]步骤 6/6: 删除AgentCore Memory[/cyan]")
         if "memory_id" in self.resources:
             with console.status("[bold green]删除Memory..."):
                 delete_agentcore_memory(self.resources["memory_id"])
             console.print(f"  ✅ 已删除Memory")
+        else:
+            console.print("  ⏭️  跳过（未创建）")
+
+    def delete_policy_engine(self):
+        """删除Policy Engine"""
+        console.print("\n[cyan]步骤 4/6: 删除Policy Engine[/cyan]")
+        if "policy_engine_id" in self.resources:
+            with console.status("[bold green]删除Policy Engine..."):
+                region = boto3.Session().region_name
+                delete_policy_engine(self.resources["policy_engine_id"], region)
+            console.print(f"  ✅ 已删除Policy Engine")
+        else:
+            console.print("  ⏭️  跳过（未创建）")
+
+    def delete_coupon_lambda(self):
+        """删除Coupon Lambda"""
+        console.print("\n[cyan]步骤 5/6: 删除Coupon Lambda[/cyan]")
+        if "coupon_lambda_arn" in self.resources:
+            with console.status("[bold green]删除Coupon Lambda..."):
+                region = boto3.Session().region_name
+                # 从deployment_info.yaml读取配置
+                import yaml
+                with open("config.yaml", "r") as f:
+                    config = yaml.safe_load(f)
+                
+                delete_coupon_lambda(
+                    config["coupon_lambda"]["name"],
+                    config["coupon_lambda"]["role_name"],
+                    region
+                )
+            console.print(f"  ✅ 已删除Coupon Lambda")
         else:
             console.print("  ⏭️  跳过（未创建）")
 

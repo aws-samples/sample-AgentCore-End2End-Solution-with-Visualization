@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { AppLayout, Header, Container, Button } from '@cloudscape-design/components'
+import { AppLayout, Header, Container, Button, SpaceBetween, Link } from '@cloudscape-design/components'
 import ChatInterface from './components/ChatInterface'
 import WorkflowDiagram from './components/WorkflowDiagram'
 import LoginPage from './components/LoginPage'
@@ -11,6 +11,50 @@ function App() {
   const [activeNodes, setActiveNodes] = useState<string[]>([])
   const [traceEvents, setTraceEvents] = useState<any[]>([])
   const [stepDescriptions, setStepDescriptions] = useState<string[]>([])
+
+  // 从环境变量获取AWS资源信息
+  const region = import.meta.env.VITE_AWS_REGION || 'us-east-1'
+  const runtimeArn = import.meta.env.VITE_AGENT_RUNTIME_ARN || ''
+  const policyEngineId = import.meta.env.VITE_POLICY_ENGINE_ID || ''
+  
+  // 从Runtime ARN提取资源ID
+  const extractResourceIds = () => {
+    // Runtime ARN格式: arn:aws:bedrock-agentcore:region:account:runtime/runtime-id
+    const match = runtimeArn.match(/arn:aws:bedrock-agentcore:([^:]+):([^:]+):runtime\/(.+)/)
+    if (match) {
+      const runtimeId = match[3]
+      // 从runtime-id提取agent名称 (customer_support_agent-OUIl7F9uZJ -> customer_support_agent)
+      const agentName = runtimeId.split('-').slice(0, -1).join('_')
+      
+      return {
+        region: match[1],
+        accountId: match[2],
+        runtimeId: runtimeId,
+        agentName: agentName
+      }
+    }
+    return null
+  }
+
+  const resourceIds = extractResourceIds()
+
+  // 生成AWS Console链接
+  const consoleLinks = {
+    // Observability链接 - 直接到Runtime的详细页面
+    observability: resourceIds 
+      ? `https://${resourceIds.region}.console.aws.amazon.com/cloudwatch/home?region=${resourceIds.region}#gen-ai-observability/agent-core/agent-alias/${resourceIds.runtimeId}/endpoint/DEFAULT/agent/${resourceIds.agentName}?resourceId=${encodeURIComponent(runtimeArn + '/runtime-endpoint/DEFAULT:DEFAULT')}&serviceName=${resourceIds.agentName}.DEFAULT`
+      : `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#gen-ai-observability/agent-core`,
+    
+    // Policy Engine链接 - 直接到具体的Policy Engine（需要添加region参数）
+    policy: policyEngineId
+      ? `https://${region}.console.aws.amazon.com/bedrock-agentcore/policy/${policyEngineId}?region=${region}`
+      : `https://${region}.console.aws.amazon.com/bedrock-agentcore/policy-engines`,
+    
+    // Evaluation链接 - Observability页面的evaluations标签
+    evaluation: resourceIds
+      ? `https://${resourceIds.region}.console.aws.amazon.com/cloudwatch/home?region=${resourceIds.region}#gen-ai-observability/agent-core/agent-alias/${resourceIds.runtimeId}/endpoint/DEFAULT/agent/${resourceIds.agentName}?resourceId=${encodeURIComponent(runtimeArn + '/runtime-endpoint/DEFAULT:DEFAULT')}&serviceName=${resourceIds.agentName}.DEFAULT&tabId=evaluations`
+      : `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#gen-ai-observability/agent-core`,
+  }
 
   // 初始化认证服务
   useEffect(() => {
@@ -153,9 +197,34 @@ function App() {
             justifyContent: 'space-between',
             alignItems: 'center',
           }}>
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>
-              AgentCore E2E 可视化演示
-            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>
+                AgentCore E2E 可视化演示
+              </h1>
+              <SpaceBetween direction="horizontal" size="s">
+                <Link
+                  external
+                  href={consoleLinks.observability}
+                  fontSize="body-s"
+                >
+                  📊 Observability
+                </Link>
+                <Link
+                  external
+                  href={consoleLinks.policy}
+                  fontSize="body-s"
+                >
+                  🔐 Policy Engine
+                </Link>
+                <Link
+                  external
+                  href={consoleLinks.evaluation}
+                  fontSize="body-s"
+                >
+                  📈 Evaluation
+                </Link>
+              </SpaceBetween>
+            </div>
             <Button onClick={handleLogout} variant="normal">
               退出登录
             </Button>

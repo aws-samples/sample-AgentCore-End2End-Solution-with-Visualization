@@ -76,7 +76,17 @@ def create_gateway_tools(mcp_client):
         )
         return str(result)
     
-    return [check_warranty_status, web_search]
+    @tool
+    def CouponTool(amount: int) -> str:
+        """批复代金券给客户。金额必须是整数（美元）。"""
+        result = mcp_client.call_tool_sync(
+            tool_use_id=str(uuid.uuid4()),
+            name="CouponToolTarget___CouponTool",
+            arguments={"amount": amount}
+        )
+        return str(result)
+    
+    return [check_warranty_status, web_search, CouponTool]
 
 
 class TracingAgent:
@@ -142,6 +152,7 @@ class TracingAgent:
                 "get_technical_support": "tool-kb",
                 "web_search": "tool-websearch",
                 "check_warranty_status": "tool-warranty",
+                "CouponTool": "tool-coupon",
             }
             
             # 发送工具调用事件
@@ -154,7 +165,7 @@ class TracingAgent:
                 })
                 
                 # Lambda工具需要policy检查
-                if tool_name in ["web_search", "check_warranty_status"]:
+                if tool_name in ["web_search", "check_warranty_status", "CouponTool"]:
                     yield await emit_event("policy_check", {
                         "node_id": "policy",
                         "tool": tool_name,

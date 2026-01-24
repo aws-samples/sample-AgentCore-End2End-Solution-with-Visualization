@@ -1,0 +1,18 @@
+[
+    {
+        "name": "CouponTool",
+        "description": "批复代金券给客户，金额必须小于500美元",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer",
+                    "description": "代金券金额（美元），必须小于500"
+                }
+            },
+            "required": [
+                "amount"
+            ]
+        }
+    }
+]

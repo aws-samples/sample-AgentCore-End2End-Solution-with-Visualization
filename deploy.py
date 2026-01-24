@@ -35,6 +35,12 @@ from utils.agentcore_helper import (
     wait_for_runtime_ready,
     put_ssm_parameter,
     get_ssm_parameter,
+    create_coupon_lambda,
+    add_coupon_gateway_target,
+    create_policy_engine,
+    create_policy_rules,
+    attach_policy_to_gateway,
+    update_gateway_role_for_policy,
 )
 from utils.aws_helper import (
     create_s3_website_bucket,
@@ -157,6 +163,10 @@ class AgentCoreDeployer:
             # 确保Runtime Role有Gateway权限
             console.print("  🔧 配置Runtime Role权限...")
             self.ensure_runtime_gateway_permissions()
+            
+            # 确保Gateway Role有Policy权限（提前添加）
+            console.print("  🔧 配置Gateway Role的Policy权限...")
+            self.ensure_gateway_policy_permissions()
             
             console.print("  ✅ Cognito配置已加载")
             console.print(f"  ✅ Machine Client: {self.resources['cognito']['client_id'][:20]}...")
@@ -310,6 +320,35 @@ class AgentCoreDeployer:
                 console.print("  ✅ ECR权限已添加")
         except Exception as e:
             console.print(f"  ⚠️  添加ECR权限失败: {e}")
+    
+    def ensure_gateway_policy_permissions(self):
+        """确保Gateway Role有Policy Engine权限（使用通配符）"""
+        iam = boto3.client("iam")
+        role_name = self.resources["gateway_role_arn"].split("/")[-1]
+        
+        console.print("  🔧 配置Gateway Role的Policy权限...")
+        
+        try:
+            # 使用通配符权限确保Policy评估成功
+            policy_engine_policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "bedrock-agentcore:*",
+                        "Resource": "*"
+                    }
+                ]
+            }
+            
+            iam.put_role_policy(
+                RoleName=role_name,
+                PolicyName="PolicyEngineAccess",
+                PolicyDocument=json.dumps(policy_engine_policy)
+            )
+            console.print("  ✅ Policy Engine权限已添加（bedrock-agentcore:*）")
+        except Exception as e:
+            console.print(f"  ⚠️  添加Policy权限失败: {e}")
 
     def get_cognito_token(self):
         """获取Cognito测试用户的token"""
@@ -362,20 +401,41 @@ class AgentCoreDeployer:
             self.load_existing_resources()
 
             # 步骤1: 创建Memory
-            console.print("\n[bold cyan]步骤 1/4: 创建AgentCore Memory[/bold cyan]")
+            console.print("\n[bold cyan]步骤 1/7: 创建AgentCore Memory[/bold cyan]")
             self.create_memory()
 
             # 步骤2: 创建Gateway
-            console.print("\n[bold cyan]步骤 2/4: 创建AgentCore Gateway[/bold cyan]")
+            console.print("\n[bold cyan]步骤 2/7: 创建AgentCore Gateway[/bold cyan]")
             self.create_gateway()
 
-            # 步骤3: 部署Runtime
-            console.print("\n[bold cyan]步骤 3/4: 部署AgentCore Runtime[/bold cyan]")
-            self.deploy_runtime()
+            # 步骤3: 部署CouponTool Lambda
+            console.print("\n[bold cyan]步骤 3/7: 部署CouponTool Lambda[/bold cyan]")
+            self.deploy_coupon_lambda()
 
-            # 步骤4: 部署前端
-            console.print("\n[bold cyan]步骤 4/4: 部署前端应用[/bold cyan]")
+            # 步骤4: 创建Policy Engine
+            console.print("\n[bold cyan]步骤 4/7: 创建Policy Engine[/bold cyan]")
+            self.deploy_policy_engine()
+
+            # 步骤5: 部署Runtime
+            console.print("\n[bold cyan]步骤 5/7: 部署AgentCore Runtime[/bold cyan]")
+            try:
+                self.deploy_runtime()
+            except Exception as e:
+                console.print(f"\n[yellow]⚠️  Runtime部署遇到问题，但可能已部分完成[/yellow]")
+                # 检查是否有runtime_arn，如果有则继续
+                if "runtime_arn" not in self.resources:
+                    console.print("[red]❌ 无法继续，Runtime未创建[/red]")
+                    raise
+                else:
+                    console.print("[green]✅ Runtime ARN已保存，继续部署前端[/green]")
+
+            # 步骤6: 部署前端
+            console.print("\n[bold cyan]步骤 6/7: 部署前端应用[/bold cyan]")
             self.deploy_frontend()
+
+            # 步骤7: 验证Policy配置
+            console.print("\n[bold cyan]步骤 7/7: 验证Policy配置[/bold cyan]")
+            self.verify_policy_setup()
 
             # 显示部署摘要
             self.show_summary()
@@ -383,6 +443,14 @@ class AgentCoreDeployer:
         except Exception as e:
             console.print(f"\n[bold red]❌ 部署失败: {e}[/bold red]")
             console.print("[yellow]提示: 运行 'python cleanup.py' 清理已创建的资源[/yellow]")
+            
+            # 显示已创建的资源
+            if self.resources:
+                console.print("\n[cyan]已创建的资源（保存在deployment_info.yaml）:[/cyan]")
+                for key, value in self.resources.items():
+                    if key not in ['cognito'] and value:
+                        console.print(f"  • {key}: {str(value)[:80]}...")
+            
             raise
 
     def create_memory(self):
@@ -411,34 +479,280 @@ class AgentCoreDeployer:
                 self.resources["lambda_arn"],
                 "lambda/api_spec.json",
                 self.region,
+                web_client_id=self.resources["cognito"]["web_client_id"],  # 传入Web Client
             )
             self.resources["gateway_id"] = gateway_id
+            
+            # 获取Gateway ARN
+            gateway_client = boto3.client("bedrock-agentcore-control", region_name=self.region)
+            gateway_info = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
+            self.resources["gateway_arn"] = gateway_info["gatewayArn"]
+            
             self.save_resources()
 
         console.print(f"  ✅ Gateway ID: {gateway_id}")
+        console.print(f"  ✅ 允许的Clients: Machine + Web")
+
+    def deploy_coupon_lambda(self):
+        """部署CouponTool Lambda函数"""
+        with console.status("[bold green]创建CouponTool Lambda..."):
+            lambda_arn, role_arn = create_coupon_lambda(
+                self.config["coupon_lambda"]["name"],
+                self.config["coupon_lambda"]["role_name"],
+                self.region
+            )
+            self.resources["coupon_lambda_arn"] = lambda_arn
+            self.resources["coupon_lambda_role_arn"] = role_arn
+            
+            # 添加Target到Gateway
+            target_id = add_coupon_gateway_target(
+                self.resources["gateway_id"],
+                self.config["coupon_lambda"]["target_name"],
+                lambda_arn,
+                self.region
+            )
+            self.resources["coupon_target_id"] = target_id
+            
+            # 更新Gateway Role权限（添加Coupon Lambda调用权限）
+            iam_client = boto3.client("iam", region_name=self.region)
+            role_name = self.resources["gateway_role_arn"].split("/")[-1]
+            
+            try:
+                # 获取现有的BedrockAgentPolicy
+                existing_policy = iam_client.get_role_policy(
+                    RoleName=role_name,
+                    PolicyName="BedrockAgentPolicy"
+                )
+                
+                policy_doc = json.loads(existing_policy["PolicyDocument"]) if isinstance(existing_policy["PolicyDocument"], str) else existing_policy["PolicyDocument"]
+                
+                # 添加Coupon Lambda ARN到Resource列表
+                for statement in policy_doc["Statement"]:
+                    if statement.get("Action") == ["lambda:InvokeFunction"]:
+                        if lambda_arn not in statement["Resource"]:
+                            if isinstance(statement["Resource"], list):
+                                statement["Resource"].append(lambda_arn)
+                            else:
+                                statement["Resource"] = [statement["Resource"], lambda_arn]
+                
+                # 更新策略
+                iam_client.put_role_policy(
+                    RoleName=role_name,
+                    PolicyName="BedrockAgentPolicy",
+                    PolicyDocument=json.dumps(policy_doc)
+                )
+            except Exception:
+                pass
+            
+            self.save_resources()
+
+        console.print(f"  ✅ Lambda ARN: {lambda_arn}")
+        console.print(f"  ✅ Target ID: {target_id}")
+        console.print("  ✅ Gateway Role权限已更新")
+
+    def deploy_policy_engine(self):
+        """部署Policy Engine和规则"""
+        with console.status("[bold green]创建Policy Engine..."):
+            # 创建Policy Engine
+            policy_engine_id = create_policy_engine(
+                self.config["policy"]["engine_name"],
+                self.region
+            )
+            self.resources["policy_engine_id"] = policy_engine_id
+            
+            # 获取Gateway ARN（如果还没有）
+            if "gateway_arn" not in self.resources:
+                gateway_client = boto3.client("bedrock-agentcore-control", region_name=self.region)
+                gateway_info = gateway_client.get_gateway(gatewayIdentifier=self.resources["gateway_id"])
+                self.resources["gateway_arn"] = gateway_info["gatewayArn"]
+            
+            gateway_arn = self.resources["gateway_arn"]
+            
+            # 删除可能存在的失败Policy
+            console.print("  🔧 清理失败的Policy...")
+            try:
+                gateway_client = boto3.client("bedrock-agentcore-control", region_name=self.region)
+                policies = gateway_client.list_policies(policyEngineId=policy_engine_id)
+                
+                for policy in policies.get('policies', []):
+                    if policy['status'] == 'CREATE_FAILED':
+                        try:
+                            gateway_client.delete_policy(
+                                policyEngineId=policy_engine_id,
+                                policyId=policy['policyId']
+                            )
+                            console.print(f"  ✅ 删除失败Policy: {policy['name']}")
+                        except Exception:
+                            pass
+                
+                # 等待删除完成
+                time.sleep(3)
+            except Exception:
+                pass
+            
+            # 创建Policy规则
+            policy_ids = create_policy_rules(
+                policy_engine_id,
+                gateway_arn,
+                self.region
+            )
+            self.resources["policy_ids"] = policy_ids
+            
+            # 关联Policy Engine到Gateway
+            attach_policy_to_gateway(
+                self.resources["gateway_id"],
+                policy_engine_id,
+                self.config["policy"]["mode"],
+                self.region
+            )
+            
+            self.save_resources()
+
+        console.print(f"  ✅ Policy Engine ID: {policy_engine_id}")
+        console.print(f"  ✅ 创建了 {len(policy_ids)} 个Policy规则")
+        console.print(f"  ✅ Policy模式: {self.config['policy']['mode']}")
+        
+        # 等待Policy生效
+        console.print("  ⏳ 等待Policy规则生效...")
+        time.sleep(5)
+
+    def verify_policy_setup(self):
+        """验证Policy配置"""
+        console.print("  🔍 验证Policy Engine配置...")
+        
+        gateway_client = boto3.client("bedrock-agentcore-control", region_name=self.region)
+        
+        # 检查Gateway的Policy配置
+        gateway_info = gateway_client.get_gateway(gatewayIdentifier=self.resources["gateway_id"])
+        if "policyEngineConfiguration" in gateway_info:
+            console.print("  ✅ Policy Engine已关联到Gateway")
+            console.print(f"  ✅ 模式: {gateway_info['policyEngineConfiguration']['mode']}")
+        else:
+            console.print("  ⚠️  Policy Engine未关联到Gateway")
+        
+        # 检查Policy规则状态
+        try:
+            response = gateway_client.list_policies(policyEngineId=self.resources["policy_engine_id"])
+            active_count = sum(1 for p in response.get("policies", []) if p.get("status") == "ACTIVE")
+            failed_count = sum(1 for p in response.get("policies", []) if p.get("status") == "CREATE_FAILED")
+            
+            console.print(f"  ✅ {active_count} 个Policy规则处于ACTIVE状态")
+            
+            if failed_count > 0:
+                console.print(f"  ⚠️  {failed_count} 个Policy规则失败")
+                # 尝试重新创建失败的规则
+                console.print("  🔧 尝试重新创建失败的规则...")
+                for policy in response.get("policies", []):
+                    if policy.get("status") == "CREATE_FAILED":
+                        try:
+                            gateway_client.delete_policy(
+                                policyEngineId=self.resources["policy_engine_id"],
+                                policyId=policy["policyId"]
+                            )
+                        except Exception:
+                            pass
+                
+                time.sleep(3)
+                
+                # 重新创建Policy规则
+                create_policy_rules(
+                    self.resources["policy_engine_id"],
+                    self.resources["gateway_arn"],
+                    self.region
+                )
+                console.print("  ✅ 失败的规则已重新创建")
+                
+        except Exception as e:
+            console.print(f"  ⚠️  无法检查Policy状态: {e}")
+        
+        # 检查Gateway Role权限
+        console.print("  🔍 验证Gateway Role权限...")
+        iam = boto3.client("iam")
+        role_name = self.resources["gateway_role_arn"].split("/")[-1]
+        
+        try:
+            policies = iam.list_role_policies(RoleName=role_name)
+            if "PolicyEngineAccess" in policies['PolicyNames']:
+                console.print("  ✅ Gateway Role有Policy评估权限")
+            else:
+                console.print("  ⚠️  Gateway Role缺少Policy评估权限")
+        except Exception as e:
+            console.print(f"  ⚠️  无法检查Role权限: {e}")
+        
+        # 等待IAM权限传播
+        console.print("  ⏳ 等待IAM权限传播（30秒）...")
+        time.sleep(30)
+        console.print("  ✅ 权限传播完成")
 
     def deploy_runtime(self):
         """部署AgentCore Runtime"""
         console.print("  [yellow]⏳ 构建并部署Runtime（约5-10分钟）...[/yellow]")
 
-        with console.status("[bold green]部署中..."):
-            runtime_arn = deploy_agentcore_runtime(
-                self.config["runtime"]["entrypoint"],
-                self.config["runtime"]["requirements_file"],
-                self.resources["runtime_role_arn"],
-                self.config["runtime"]["agent_name"],
-                self.resources["cognito"]["client_id"],  # Machine Client
-                self.resources["cognito"]["discovery_url"],
-                self.resources["memory_id"],
-                self.region,
-                web_client_id=self.resources["cognito"]["web_client_id"],  # Web Client
-            )
-            self.resources["runtime_arn"] = runtime_arn
-            put_ssm_parameter("/app/customersupport/agentcore/runtime_viz_arn", runtime_arn)
-            self.save_resources()
+        # 删除旧的配置文件，避免尝试更新不存在的Runtime
+        config_files = [".bedrock_agentcore.yaml", "Dockerfile", ".dockerignore"]
+        for config_file in config_files:
+            if os.path.exists(config_file):
+                try:
+                    os.remove(config_file)
+                    console.print(f"  🔧 删除旧配置: {config_file}")
+                except Exception:
+                    pass
 
-        console.print(f"  ✅ Runtime ARN: {runtime_arn}")
-        console.print("  ✅ Runtime已部署（允许Machine + Web Client）")
+        try:
+            with console.status("[bold green]部署中..."):
+                runtime_arn = deploy_agentcore_runtime(
+                    self.config["runtime"]["entrypoint"],
+                    self.config["runtime"]["requirements_file"],
+                    self.resources["runtime_role_arn"],
+                    self.config["runtime"]["agent_name"],
+                    self.resources["cognito"]["client_id"],  # Machine Client
+                    self.resources["cognito"]["discovery_url"],
+                    self.resources["memory_id"],
+                    self.region,
+                    web_client_id=self.resources["cognito"]["web_client_id"],  # Web Client
+                )
+                self.resources["runtime_arn"] = runtime_arn
+                put_ssm_parameter("/app/customersupport/agentcore/runtime_viz_arn", runtime_arn)
+                self.save_resources()
+
+            console.print(f"  ✅ Runtime ARN: {runtime_arn}")
+            console.print("  ✅ Runtime已部署（允许Machine + Web Client）")
+            
+        except Exception as e:
+            console.print(f"  [red]❌ Runtime部署失败: {e}[/red]")
+            console.print("\n[yellow]可能的原因:[/yellow]")
+            console.print("  1. CodeBuild超时（构建时间过长）")
+            console.print("  2. Runtime创建失败（检查CloudWatch日志）")
+            console.print("  3. 网络问题或资源限制")
+            console.print("\n[cyan]建议:[/cyan]")
+            console.print("  1. 检查CodeBuild日志")
+            console.print("  2. 删除配置文件后重试: rm -f .bedrock_agentcore.yaml Dockerfile .dockerignore")
+            console.print("  3. 如果Runtime已创建，手动更新deployment_info.yaml中的runtime_arn")
+            
+            # 尝试查找已创建的Runtime
+            console.print("\n[cyan]查找已创建的Runtime...[/cyan]")
+            try:
+                control_client = boto3.client('bedrock-agentcore-control', region_name=self.region)
+                runtimes = control_client.list_agent_runtimes()
+                
+                for runtime in runtimes.get('agentRuntimes', []):
+                    if 'customer_support_agent' in runtime.get('agentRuntimeId', ''):
+                        runtime_id = runtime['agentRuntimeId']
+                        runtime_arn = f"arn:aws:bedrock-agentcore:{self.region}:{self.account_id}:runtime/{runtime_id}"
+                        console.print(f"  ✅ 找到Runtime: {runtime_arn}")
+                        
+                        # 保存到resources
+                        self.resources["runtime_arn"] = runtime_arn
+                        put_ssm_parameter("/app/customersupport/agentcore/runtime_viz_arn", runtime_arn)
+                        self.save_resources()
+                        
+                        console.print("  ✅ Runtime ARN已保存，继续部署...")
+                        return  # 继续执行后续步骤
+                        
+            except Exception as e2:
+                console.print(f"  [red]查找Runtime失败: {e2}[/red]")
+            
+            raise  # 重新抛出异常
 
     def deploy_frontend(self):
         """部署前端应用"""
@@ -453,6 +767,11 @@ class AgentCoreDeployer:
         env_content = f"""# AgentCore Runtime Configuration
 VITE_AGENT_RUNTIME_ARN={self.resources['runtime_arn']}
 VITE_AWS_REGION={self.region}
+
+# AgentCore Resource IDs (for Console links)
+VITE_POLICY_ENGINE_ID={self.resources.get('policy_engine_id', '')}
+VITE_GATEWAY_ID={self.resources.get('gateway_id', '')}
+VITE_MEMORY_ID={self.resources.get('memory_id', '')}
 
 # Cognito Configuration (for login)
 VITE_COGNITO_USER_POOL_ID={self.resources['cognito']['pool_id']}
@@ -569,6 +888,8 @@ VITE_AUTH_TOKEN={self.resources['cognito']['bearer_token']}
 
         table.add_row("Memory", self.resources.get("memory_id", "N/A"))
         table.add_row("Gateway", self.resources.get("gateway_id", "N/A"))
+        table.add_row("Policy Engine", self.resources.get("policy_engine_id", "N/A"))
+        table.add_row("Coupon Lambda", self.resources.get("coupon_lambda_arn", "N/A"))
         table.add_row("Runtime", self.resources.get("runtime_arn", "N/A"))
         table.add_row("Lambda", self.resources.get("lambda_arn", "N/A"))
 
@@ -596,6 +917,8 @@ VITE_AUTH_TOKEN={self.resources['cognito']['bearer_token']}
         console.print("  • Memory首次使用需等待约30秒处理")
         console.print("  • 资源信息已保存到 deployment_info.yaml")
         console.print("  • 推荐使用本地开发模式（npm run dev）")
+        console.print(f"  • Policy Engine已启用（模式: {self.config['policy']['mode']}）")
+        console.print(f"  • 代金券金额限制: <${self.config['policy']['coupon_limit']}")
 
         # 下一步
         console.print("\n[bold cyan]📚 下一步：[/bold cyan]")
@@ -603,7 +926,9 @@ VITE_AUTH_TOKEN={self.resources['cognito']['bearer_token']}
         console.print("  2. 访问 http://localhost:3000")
         console.print("  3. 使用测试账号登录")
         console.print("  4. 测试Agent功能和工作流可视化")
-        console.print("  5. 运行 'python cleanup.py' 清理资源")
+        console.print("  5. 测试Policy控制: 尝试申请$100和$500代金券")
+        console.print("  6. 运行 'python toDelete_test_policy.py' 测试Policy")
+        console.print("  7. 运行 'python cleanup.py' 清理资源")
 
 
 def main():
