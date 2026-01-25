@@ -3,6 +3,8 @@
 ## 📋 概述
 
 完整的 Amazon Bedrock AgentCore 端到端演示
+![截图1](./screenshots/chatbot-whoareyou.png)
+![截图2](./screenshots/chatbot-couponapproved.png)
 
 ### 包含功能
 - ✅ AgentCore Memory（用户偏好 + 语义记忆）
