@@ -123,13 +123,15 @@ class AgentCoreDeployer:
             )
             self.resources["cognito"]["client_secret"] = machine_client_response["UserPoolClient"].get("ClientSecret", "")
             
-            # 保存client_secret到SSM（如果不存在）
-            try:
-                get_ssm_parameter("/app/customersupport/agentcore/client_secret")
-            except:
-                if self.resources["cognito"]["client_secret"]:
+            # 保存client_secret到SSM（始终同步最新值）
+            if self.resources["cognito"]["client_secret"]:
+                try:
+                    existing_secret = get_ssm_parameter("/app/customersupport/agentcore/client_secret")
+                except Exception:
+                    existing_secret = None
+                if existing_secret != self.resources["cognito"]["client_secret"]:
                     put_ssm_parameter("/app/customersupport/agentcore/client_secret", self.resources["cognito"]["client_secret"])
-                    console.print("  ✅ Machine Client Secret已保存到SSM")
+                    console.print("  ✅ Machine Client Secret已同步到SSM")
             
             # 获取Web client secret（用于前端登录）
             web_client_response = cognito.describe_user_pool_client(
@@ -598,6 +600,9 @@ class AgentCoreDeployer:
             )
             self.resources["policy_ids"] = policy_ids
             
+            # 确保Gateway Role有Policy Engine权限
+            self.ensure_gateway_policy_permissions()
+
             # 关联Policy Engine到Gateway
             attach_policy_to_gateway(
                 self.resources["gateway_id"],

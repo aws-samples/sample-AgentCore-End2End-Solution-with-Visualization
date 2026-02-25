@@ -91,6 +91,38 @@ def create_agentcore_gateway(
                 if gw["name"] == name:
                     gateway_id = gw["gatewayId"]
                     break
+
+            # 更新Gateway配置（roleArn、authorizerConfiguration可能因重新部署而变化）
+            details = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
+
+            expected_authorizer = {
+                "customJWTAuthorizer": {
+                    "allowedClients": allowed_clients,
+                    "discoveryUrl": discovery_url,
+                }
+            }
+
+            needs_update = (
+                details["roleArn"] != role_arn
+                or details.get("authorizerConfiguration") != expected_authorizer
+            )
+
+            if needs_update:
+                print(f"  🔧 更新Gateway配置（role/authorizer）...")
+                update_params = {
+                    "gatewayIdentifier": gateway_id,
+                    "name": details["name"],
+                    "roleArn": role_arn,
+                    "protocolType": details["protocolType"],
+                    "authorizerType": details["authorizerType"],
+                    "authorizerConfiguration": expected_authorizer,
+                }
+                if "policyEngineConfiguration" in details:
+                    update_params["policyEngineConfiguration"] = details["policyEngineConfiguration"]
+                gateway_client.update_gateway(**update_params)
+                # 等待Gateway更新和IAM角色传播
+                import time
+                time.sleep(10)
         else:
             raise
 
