@@ -84,6 +84,10 @@ permit(                              // 或 forbid
 
 ## 4.3 本系统的 4 个 Policy 规则
 
+> 📁 **源文件**：`utils/agentcore_helper.py` → `create_policy_rules` 函数（第 430-490 行）
+> 
+> 这 4 条 Cedar 规则以 Python f-string 形式定义在代码中，`{gateway_arn}` 在部署时动态替换为实际的 Gateway ARN。
+
 ### 规则 1: AllowCheckWarranty
 
 ```cedar
