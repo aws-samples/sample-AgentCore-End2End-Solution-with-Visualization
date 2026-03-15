@@ -11,15 +11,54 @@
 
 ---
 
-## 7.1 准备工作
+## 7.1 访问前端
 
-确保以下资源已就绪：
+### 获取 CloudFront URL
 
-1. Runtime 状态为 ACTIVE
-2. 前端可以访问（本地 `npm run dev` 或 CloudFront URL）
-3. 使用测试账号登录：
-   - 用户名：`testuser@example.com`
-   - 密码：`MyPassword123!`
+`deploy.py` 完成后会输出 CloudFront URL。如果您错过了输出，可以通过以下方式获取：
+
+**方式 1：从 deployment_info.yaml 读取**
+
+```bash
+cat deployment_info.yaml | grep frontend_url
+```
+
+输出示例：
+```
+frontend_url: https://d184782ixc11gq.cloudfront.net
+```
+
+**方式 2：从 AWS Console 查看**
+
+1. 打开 [CloudFront Console](https://console.aws.amazon.com/cloudfront)
+2. 找到 Comment 包含 `agentcore-frontend` 的分发
+3. 复制 Domain name（如 `d184782ixc11gq.cloudfront.net`）
+4. 访问 `https://<domain-name>`
+
+**方式 3：通过 AWS CLI 查询**
+
+```bash
+aws cloudfront list-distributions \
+  --query 'DistributionList.Items[?contains(Comment, `agentcore-frontend`)].DomainName' \
+  --output text
+```
+
+> ⏳ CloudFront 首次部署后需要 5-10 分钟生效。如果访问返回错误，请稍等片刻再试。
+
+### 登录
+
+打开 CloudFront URL，您会看到登录页面。使用测试账号登录：
+
+- 用户名：`testuser@example.com`
+- 密码：`MyPassword123!`
+
+登录成功后，您会看到三栏布局：左侧聊天界面、中间工作流可视化、右侧执行步骤。
+
+> 💡 **备选方案**：如果 CloudFront 尚未生效，也可以在本地运行前端（需要 Node.js 18+）：
+> ```bash
+> cd frontend && npm install && npm run dev
+> ```
+> 然后访问 http://localhost:3000
 
 ---
 

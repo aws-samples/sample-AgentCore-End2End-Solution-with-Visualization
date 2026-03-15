@@ -188,19 +188,7 @@ const eventTypeMap = {
 
 ## 6.5 部署前端
 
-### 方式 1: 本地开发（推荐用于 Workshop）
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-访问 http://localhost:3000
-
-### 方式 2: CloudFront 部署
-
-`deploy.py` 会自动完成以下步骤：
+`deploy.py` 已经自动完成了前端的构建和部署，包括：
 
 1. 生成 `.env` 文件（包含 Runtime ARN、Cognito 配置等）
 2. `npm install` + `npm run build`
@@ -209,6 +197,38 @@ npm run dev
 5. 创建 CloudFront 分发 + OAI
 6. 配置 S3 Bucket Policy
 7. 失效 CloudFront 缓存
+
+### 获取访问地址
+
+部署完成后，从 `deployment_info.yaml` 获取 CloudFront URL：
+
+```bash
+cat deployment_info.yaml | grep frontend_url
+```
+
+或通过 AWS CLI：
+
+```bash
+aws cloudfront list-distributions \
+  --query 'DistributionList.Items[?contains(Comment, `agentcore-frontend`)].DomainName' \
+  --output text
+```
+
+访问 `https://<domain-name>` 即可打开前端。
+
+> ⏳ CloudFront 首次部署后需要 5-10 分钟生效。
+
+### 备选：本地开发模式
+
+如果 CloudFront 尚未生效，或需要调试前端代码，可以本地运行：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+访问 http://localhost:3000
 
 ### 前端环境变量
 
