@@ -80,9 +80,11 @@ Agent: 好的，我来帮您查询保修信息。  ← 记住了用户偏好
 
 ## 2.3 创建 Memory
 
+> 📁 **部署入口**：`deploy.py` → `create_memory` 方法调用了下面的函数
+
 ### 代码解析
 
-打开 `utils/agentcore_helper.py`，查看 `create_agentcore_memory` 函数：
+> 📁 **源文件**：`utils/agentcore_helper.py` → `create_agentcore_memory` 函数
 
 ```python
 def create_agentcore_memory(name, description, region):
@@ -160,7 +162,9 @@ print(f"Memory ID: {memory['id']}")
 
 ## 2.4 Memory 与 Agent 的集成
 
-在 `agent/customer_support_agent.py` 中，Memory 通过 `AgentCoreMemorySessionManager` 与 Strands Agent 集成：
+> 📁 **源文件**：`agent/customer_support_agent.py` → `invoke` 函数内的 Memory 配置部分
+
+在 Agent 代码中，Memory 通过 `AgentCoreMemorySessionManager` 与 Strands Agent 集成：
 
 ```python
 from bedrock_agentcore.memory.integrations.strands.config import (

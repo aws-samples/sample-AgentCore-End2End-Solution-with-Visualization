@@ -139,6 +139,10 @@ forbid(
 
 ## 4.4 创建 Policy Engine
 
+> 📁 **源文件**：`utils/agentcore_helper.py` → `create_policy_engine`、`create_policy_rules`、`attach_policy_to_gateway` 函数
+> 📁 **部署入口**：`deploy.py` → `deploy_policy_engine` 方法
+> 📁 **配置**：`config.yaml` → `policy` 部分
+
 ### 代码解析
 
 ```python
@@ -214,6 +218,8 @@ def attach_policy_to_gateway(gateway_id, policy_engine_id, mode, region):
 ---
 
 ## 4.6 IAM 权限要求
+
+> 📁 **源文件**：`deploy.py` → `ensure_gateway_policy_permissions` 方法
 
 Gateway Role 需要有 Policy Engine 的评估权限：
 

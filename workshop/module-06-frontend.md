@@ -69,7 +69,9 @@ frontend/src/
 
 ## 6.3 认证流程
 
-### Cognito 登录 (`authService.ts`)
+### Cognito 登录
+
+> 📁 **源文件**：`frontend/src/services/authService.ts`
 
 ```typescript
 class AuthService {
@@ -104,7 +106,9 @@ class AuthService {
 
 > 💡 Web Client 没有 Secret，所以不需要计算 SECRET_HASH。
 
-### 调用 Runtime (`agentService.ts`)
+### 调用 Runtime
+
+> 📁 **源文件**：`frontend/src/services/agentService.ts`
 
 ```typescript
 export async function invokeAgent(prompt: string): Promise<AgentResponse> {
@@ -134,7 +138,9 @@ export async function invokeAgent(prompt: string): Promise<AgentResponse> {
 
 ## 6.4 工作流可视化
 
-### 节点配置 (`workflowConfig.ts`)
+### 节点配置
+
+> 📁 **源文件**：`frontend/src/config/workflowConfig.ts`
 
 工作流图定义了系统中的所有组件和它们之间的连接：
 
@@ -165,6 +171,9 @@ export const initialNodes: Node[] = [
 
 ### Trace Events 驱动可视化
 
+> 📁 **源文件**：`frontend/src/components/WorkflowDiagram.tsx` → `useEffect` 中处理 trace events
+> 📁 **源文件**：`frontend/src/App.tsx` → `handleTraceEvents` 函数
+
 Agent 返回的 `events` 数组驱动工作流图的动画：
 
 ```typescript
@@ -187,6 +196,9 @@ const eventTypeMap = {
 ---
 
 ## 6.5 部署前端
+
+> 📁 **部署入口**：`deploy.py` → `deploy_frontend` 方法
+> 📁 **S3/CloudFront 逻辑**：`utils/aws_helper.py` → `create_s3_website_bucket`、`create_cloudfront_distribution` 等函数
 
 `deploy.py` 已经自动完成了前端的构建和部署，包括：
 

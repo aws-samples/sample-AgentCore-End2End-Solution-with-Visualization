@@ -55,7 +55,9 @@ Agent 代码 + requirements.txt
 
 ## 5.2 Agent 代码结构
 
-### 入口文件 (`agent/customer_support_agent.py`)
+### 入口文件
+
+> 📁 **源文件**：`agent/customer_support_agent.py`
 
 ```python
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -109,7 +111,9 @@ if __name__ == "__main__":
     app.run()
 ```
 
-### 本地工具 (`agent/tools.py`)
+### 本地工具
+
+> 📁 **源文件**：`agent/tools.py`
 
 Agent 有 3 个本地工具（不经过 Gateway）：
 
@@ -134,6 +138,8 @@ def get_technical_support(issue_description: str) -> str:
 ```
 
 ### Gateway 工具（通过 Gateway 调用）
+
+> 📁 **源文件**：`agent/customer_support_agent.py` → `create_gateway_tools` 函数
 
 ```python
 @tool
@@ -194,6 +200,10 @@ def CouponTool(amount: int) -> str:
 ---
 
 ## 5.4 部署 Runtime
+
+> 📁 **部署逻辑**：`utils/agentcore_helper.py` → `deploy_agentcore_runtime` 函数
+> 📁 **部署入口**：`deploy.py` → `deploy_runtime` 方法
+> 📁 **Agent 依赖**：`agent/requirements.txt`
 
 ### 配置
 
