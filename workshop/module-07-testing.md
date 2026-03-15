@@ -91,8 +91,10 @@ Agent 会返回包含以下信息的回复：
 
 ### 输入
 ```
-Check warranty for serial number ABC12345678
+Check warranty for serial number ABC12345678, my email is john.smith@email.com
 ```
+
+> 💡 **提示**：`check_warranty_status` 工具有一个可选的 `customer_email` 参数。如果只输入序列号不带 email，Agent 可能会先追问您的邮箱再调用工具。在输入中直接提供 email 可以让 Agent 一步到位。
 
 ### 预期行为
 - Agent 调用 Gateway 工具 `check_warranty_status`
@@ -110,7 +112,6 @@ Agent 会返回 ABC12345678 的保修信息：
 - 购买日期：2023-01-15
 - 保修到期：2025-01-15
 - 保修类型：Extended Warranty
-- 状态：Active（如果当前日期在保修期内）
 
 ---
 
