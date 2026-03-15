@@ -81,8 +81,13 @@ CloudFormation Stack: CustomerSupportStackCognito
 运行 `prereq.sh` 脚本：
 
 ```bash
+# 重要：先显式设置 Region，避免脚本使用错误的 Region
+export AWS_REGION=us-east-1  # 或您选择的 Region
+
 bash prereq.sh
 ```
+
+> ⚠️ **Region 注意事项**：`prereq.sh` 会优先使用 `AWS_REGION` 环境变量。如果该变量未设置，会尝试从 `aws configure get region` 获取。为避免 Region 不一致导致的问题，建议在运行前显式 `export AWS_REGION`。
 
 这个脚本会自动完成以下步骤：
 
@@ -224,6 +229,24 @@ cat /tmp/lambda-output.json
 - [ ] SSM 参数已创建
 - [ ] DynamoDB 表包含测试数据
 - [ ] Lambda 函数可以正常调用
+
+---
+
+## 🔧 常见问题
+
+### HeadBucket 404 错误
+
+```
+An error occurred (404) when calling the HeadBucket operation: Not Found
+```
+
+原因：`AWS_REGION` 环境变量与 AWS CLI 配置的 Region 不一致，导致 S3 Bucket 创建在了一个 Region，但验证时用了另一个 Region。
+
+解决：在运行 `prereq.sh` 前显式设置 Region：
+```bash
+export AWS_REGION=$(aws configure get region)
+bash prereq.sh
+```
 
 ---
 
