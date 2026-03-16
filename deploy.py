@@ -145,11 +145,20 @@ class AgentCoreDeployer:
             explicit_auth_flows = web_client_response["UserPoolClient"].get("ExplicitAuthFlows", [])
             if "ALLOW_USER_PASSWORD_AUTH" not in explicit_auth_flows:
                 console.print("  ⚙️  启用USER_PASSWORD_AUTH...")
-                cognito.update_user_pool_client(
-                    UserPoolId=self.resources["cognito"]["pool_id"],
-                    ClientId=self.resources["cognito"]["web_client_id"],
-                    ExplicitAuthFlows=["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
-                )
+                # update_user_pool_client 是全量更新，必须保留原有配置
+                update_params = {
+                    "UserPoolId": self.resources["cognito"]["pool_id"],
+                    "ClientId": self.resources["cognito"]["web_client_id"],
+                    "ExplicitAuthFlows": list(set(explicit_auth_flows + ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"])),
+                }
+                # 保留原有的 OAuth 配置
+                for key in ["AllowedOAuthFlows", "AllowedOAuthScopes", "CallbackURLs", "LogoutURLs",
+                             "SupportedIdentityProviders", "AllowedOAuthFlowsUserPoolClient",
+                             "AccessTokenValidity", "IdTokenValidity", "RefreshTokenValidity",
+                             "TokenValidityUnits", "EnableTokenRevocation"]:
+                    if key in web_client_response["UserPoolClient"] and web_client_response["UserPoolClient"][key] is not None:
+                        update_params[key] = web_client_response["UserPoolClient"][key]
+                cognito.update_user_pool_client(**update_params)
             
             # 创建测试用户（如果不存在）
             console.print("  👤 检查测试用户...")
@@ -506,16 +515,9 @@ class AgentCoreDeployer:
             self.resources["coupon_lambda_arn"] = lambda_arn
             self.resources["coupon_lambda_role_arn"] = role_arn
             
-            # 添加Target到Gateway
-            target_id = add_coupon_gateway_target(
-                self.resources["gateway_id"],
-                self.config["coupon_lambda"]["target_name"],
-                lambda_arn,
-                self.region
-            )
-            self.resources["coupon_target_id"] = target_id
-            
-            # 更新Gateway Role权限（添加Coupon Lambda调用权限）
+            # 先更新Gateway Role权限（添加Coupon Lambda调用权限）
+            # 必须在创建Gateway Target之前完成，否则Gateway会校验权限失败
+            console.print("  🔧 更新Gateway Role权限...")
             iam_client = boto3.client("iam", region_name=self.region)
             role_name = self.resources["gateway_role_arn"].split("/")[-1]
             
@@ -545,6 +547,19 @@ class AgentCoreDeployer:
                 )
             except Exception:
                 pass
+            
+            # 等待IAM权限传播
+            console.print("  ⏳ 等待IAM权限传播...")
+            time.sleep(15)
+            
+            # 添加Target到Gateway（Gateway会校验Role是否有Lambda调用权限）
+            target_id = add_coupon_gateway_target(
+                self.resources["gateway_id"],
+                self.config["coupon_lambda"]["target_name"],
+                lambda_arn,
+                self.region
+            )
+            self.resources["coupon_target_id"] = target_id
             
             self.save_resources()
 
