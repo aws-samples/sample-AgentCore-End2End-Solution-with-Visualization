@@ -293,7 +293,9 @@ cat /tmp/lambda-output.json
 
 ## 1.6 深入理解：Cognito 双 Client 架构
 
-这是本系统的一个关键设计点：
+这是本系统的一个关键设计点 — 使用两个不同的 Cognito App Client 分别服务前端用户和后端服务。
+
+### 架构图
 
 ```
                     ┌─────────────────┐
@@ -315,9 +317,90 @@ cat /tmp/lambda-output.json
               └────────────┘  └─────────────┘
 ```
 
-- **Web Client** 没有 Secret，适合浏览器端使用 `USER_PASSWORD_AUTH` 流程
-- **Machine Client** 有 Secret，使用 `client_credentials` 流程获取 M2M token
-- Runtime 收到前端请求后，使用 Machine Client 的 token 调用 Gateway
+### Web Client：前端用户登录
+
+> 📁 **创建位置**：`prerequisite/cognito.yaml` → `WebUserPoolClient`
+> 📁 **使用位置**：`frontend/src/services/authService.ts`
+
+Web Client 没有 Secret（`GenerateSecret: false`），适合在浏览器端使用。前端通过 `USER_PASSWORD_AUTH` 流程让用户输入用户名密码登录：
+
+```typescript
+// frontend/src/services/authService.ts
+const response = await fetch(endpoint, {
+  body: JSON.stringify({
+    AuthFlow: 'USER_PASSWORD_AUTH',
+    ClientId: this.config.clientId,  // ← Web Client ID
+    AuthParameters: { USERNAME: username, PASSWORD: password },
+  }),
+})
+```
+
+登录成功后，前端拿到 Access Token，用它直接调用 AgentCore Runtime API：
+
+```typescript
+// frontend/src/services/agentService.ts
+const response = await axios.post(endpoint, { prompt }, {
+  headers: { 'Authorization': `Bearer ${authToken}` },  // ← Web Client 的 token
+})
+```
+
+### Machine Client：Runtime 调用 Gateway
+
+> 📁 **创建位置**：`prerequisite/cognito.yaml` → `MachineUserPoolClient`
+> 📁 **使用位置**：`agent/customer_support_agent.py` → `invoke` 函数
+
+Machine Client 有 Secret（`GenerateSecret: true`），使用 OAuth2 `client_credentials` 流程获取 M2M（Machine-to-Machine）token。Runtime 收到前端请求后，不会把用户的 token 转发给 Gateway，而是用自己的 Machine Client 身份去调用：
+
+```python
+# agent/customer_support_agent.py → invoke 函数
+# 1. 从 SSM 获取 Machine Client 配置
+machine_client_id = ssm.get_parameter(Name="/app/customersupport/agentcore/client_id")
+machine_client_secret = ssm.get_parameter(Name="/app/customersupport/agentcore/client_secret")
+
+# 2. OAuth2 client_credentials 流程获取 M2M token
+credentials = base64.b64encode(f"{machine_client_id}:{machine_client_secret}".encode()).decode()
+token_response = httpx.post(token_url, headers={
+    "Authorization": f"Basic {credentials}"
+}, data={
+    "grant_type": "client_credentials",
+    "scope": auth_scope
+})
+machine_token = token_response.json()["access_token"]
+
+# 3. 用 Machine token 调用 Gateway
+mcp_client = MCPClient(lambda: streamablehttp_client(
+    url=gateway_url,
+    headers={"Authorization": f"Bearer {machine_token}"}  # ← Machine Client 的 token
+))
+```
+
+### 完整认证链路
+
+```
+用户浏览器                    AWS Cloud
+┌──────────┐                 ┌──────────────────────────────────────┐
+│ 输入密码  │ ──Web Client──▶│ Cognito: USER_PASSWORD_AUTH          │
+│          │ ◀──token────── │ → 返回 Access Token                  │
+│          │                 └──────────────────────────────────────┘
+│          │                 ┌──────────────────────────────────────┐
+│ 发送对话  │ ──token──────▶ │ AgentCore Runtime                    │
+│          │                 │   ↓ 收到用户请求                     │
+│          │                 │   ↓ 用 Machine Client credentials    │
+│          │                 │   ↓ 获取 M2M token                   │
+│          │                 │   ↓ 用 M2M token 调用 Gateway        │
+│          │                 │ AgentCore Gateway                    │
+│          │                 │   ↓ 验证 M2M token                   │
+│          │                 │   ↓ Policy Engine 评估               │
+│          │                 │   ↓ 调用 Lambda 工具                 │
+│          │ ◀──响应──────── │ → 返回结果                           │
+└──────────┘                 └──────────────────────────────────────┘
+```
+
+### 为什么不直接用用户 token 调 Gateway？
+
+- **安全隔离**：用户 token 只到 Runtime 层，不暴露给下游服务
+- **权限分离**：Machine Client 可以有不同于用户的权限范围（scope）
+- **M2M 标准模式**：服务间调用使用 `client_credentials` 是 OAuth2 的标准实践
 
 ---
 
@@ -345,6 +428,41 @@ An error occurred (404) when calling the HeadBucket operation: Not Found
 ```bash
 export AWS_REGION=$(aws configure get region)
 bash prereq.sh
+```
+
+### CloudFormation 栈创建失败
+
+```
+Failed to create/update the stack
+```
+
+查看具体失败原因：
+```bash
+aws cloudformation describe-stack-events \
+  --stack-name CustomerSupportStackInfra \
+  --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+  --output table
+```
+
+常见原因：
+- **IAM 权限不足**：账号缺少 `iam:CreateRole` 权限。Workshop Studio 账号需要确保 IAM policy 包含完整的 IAM 操作权限
+- **SSM 参数冲突**：之前的部署残留。先删除旧栈再重建：
+  ```bash
+  aws cloudformation delete-stack --stack-name CustomerSupportStackInfra
+  aws cloudformation wait stack-delete-complete --stack-name CustomerSupportStackInfra
+  bash prereq.sh
+  ```
+
+### pip install 报错 "No matching distribution"
+
+```
+ERROR: No matching distribution found for bedrock-agentcore-sdk-python
+```
+
+原因：旧版 `requirements.txt` 中的包名有误。确保使用 workshop 分支的最新代码：
+```bash
+git checkout workshop
+pip3 install -r requirements.txt
 ```
 
 ---
