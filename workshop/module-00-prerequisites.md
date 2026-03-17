@@ -192,8 +192,8 @@ aws bedrock list-foundation-models \
 ## 0.4 克隆项目代码
 
 ```bash
-git clone <repository-url>
-cd agentcore-sample-with-visualization
+git clone https://github.com/aws-samples/sample-AgentCore-End2End-Solution-with-Visualization.git
+cd sample-AgentCore-End2End-Solution-with-Visualization
 ```
 
 ### 安装 Python 依赖
