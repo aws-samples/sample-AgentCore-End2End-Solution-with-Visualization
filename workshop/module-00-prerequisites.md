@@ -199,8 +199,19 @@ cd sample-AgentCore-End2End-Solution-with-Visualization
 ### 安装 Python 依赖
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
+
+> 💡 如果遇到 `No module named pip` 错误，尝试：
+> ```bash
+> python3 -m ensurepip --upgrade
+> pip3 install -r requirements.txt
+> ```
+> 或者在 conda 环境中：
+> ```bash
+> conda install pip
+> pip3 install -r requirements.txt
+> ```
 
 这会安装以下核心依赖：
 
