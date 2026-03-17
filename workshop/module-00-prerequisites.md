@@ -167,17 +167,23 @@ npm --version
 3. 在左侧导航栏选择 **Model access**
 4. 点击 **Manage model access**
 5. 勾选以下模型：
-   - ✅ **Anthropic Claude 3.5 Haiku**（用于 Agent 推理）
+   - ✅ **Anthropic Claude Haiku 4.5**（用于 Agent 推理，代码中使用 cross-region 推理 `global.anthropic.claude-haiku-4-5-20251001-v1:0`）
    - ✅ **Amazon Titan Text Embeddings V2**（用于 Knowledge Base 向量化）
 6. 点击 **Save changes**
 
 > ⏳ 模型启用可能需要几分钟时间。
 
+> 📁 **模型配置位置**：`agent/customer_support_agent.py` 第 34 行
+> ```python
+> MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+> ```
+> 使用 `global.` 前缀表示 cross-region inference，Bedrock 会自动路由到最近的可用 Region。
+
 验证模型是否可用：
 
 ```bash
 aws bedrock list-foundation-models \
-  --query 'modelSummaries[?contains(modelId, `claude`) || contains(modelId, `titan-embed`)].modelId' \
+  --query 'modelSummaries[?contains(modelId, `claude-haiku-4-5`) || contains(modelId, `titan-embed`)].modelId' \
   --output table
 ```
 
@@ -296,7 +302,7 @@ frontend:
 - [ ] Python 3.10+ 已安装
 - [ ] Node.js 18+ 已安装
 - [ ] Python 依赖已安装（`pip install -r requirements.txt`）
-- [ ] Bedrock 模型已启用（Claude 3.5 Haiku + Titan Embeddings V2）
+- [ ] Bedrock 模型已启用（Claude Haiku 4.5 + Titan Embeddings V2）
 - [ ] 项目代码已克隆
 
 ---
