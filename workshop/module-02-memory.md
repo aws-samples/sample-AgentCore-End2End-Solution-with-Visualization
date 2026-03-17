@@ -219,19 +219,47 @@ agent = Agent(
 
 ```bash
 # 列出所有 Memory
-aws bedrock-agentcore-control list-memories --query 'memories[].{name:name, id:memoryId, status:status}'
+aws bedrock-agentcore-control list-memories --query 'memories[].{id:id, status:status, arn:arn}'
 ```
 
 您应该看到：
 ```json
 [
     {
-        "name": "CustomerSupportMemory",
-        "id": "customersupportmemory-xxxxxxxx",
-        "status": "ACTIVE"
+        "id": "CustomerSupportMemory-xxxxxxxx",
+        "status": "ACTIVE",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/CustomerSupportMemory-xxxxxxxx"
     }
 ]
 ```
+
+### 查看 Memory 详情
+
+```bash
+# 获取 Memory ID
+MEMORY_ID=$(cat deployment_info.yaml | grep memory_id | awk '{print $2}')
+
+# 查看 Memory 配置（包含策略详情）
+aws bedrock-agentcore-control get-memory --memory-id $MEMORY_ID
+```
+
+### 查看 Memory 中存储的记录
+
+在测试对话之后，可以查看 Memory 实际存储了哪些内容：
+
+```bash
+# 列出某个用户的记忆记录
+aws bedrock-agentcore-control list-memory-records \
+  --memory-id $MEMORY_ID \
+  --namespace "support/customer/customer_001/semantic"
+
+# 列出用户偏好记录
+aws bedrock-agentcore-control list-memory-records \
+  --memory-id $MEMORY_ID \
+  --namespace "support/customer/customer_001/preferences"
+```
+
+> 💡 `customer_001` 是 Agent 代码中硬编码的 `actor_id`（见 `agent/customer_support_agent.py`）。所有用户的对话都会存储在同一个 actor 下，这在演示中意味着你能看到之前所有对话产生的记忆。
 
 ---
 

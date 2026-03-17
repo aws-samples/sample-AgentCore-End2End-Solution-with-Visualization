@@ -47,22 +47,37 @@ echo "Account ID: $ACCOUNT_ID"
 # ----- 1. Create S3 bucket -----
 echo "🪣 Using S3 bucket: $FULL_BUCKET_NAME"
 if [ "$REGION" = "us-east-1" ]; then
-  aws s3api create-bucket \
+  CREATE_OUTPUT=$(aws s3api create-bucket \
     --bucket "$FULL_BUCKET_NAME" \
-    2>/dev/null || echo "ℹ️ Bucket may already exist or be owned by you."
+    2>&1) || {
+    if echo "$CREATE_OUTPUT" | grep -qi "BucketAlreadyOwnedByYou"; then
+      echo "ℹ️ Bucket already exists and is owned by you."
+    else
+      echo "❌ Failed to create S3 bucket: $CREATE_OUTPUT"
+      exit 1
+    fi
+  }
 else
-  aws s3api create-bucket \
+  CREATE_OUTPUT=$(aws s3api create-bucket \
     --bucket "$FULL_BUCKET_NAME" \
     --region "$REGION" \
     --create-bucket-configuration LocationConstraint="$REGION" \
-    2>/dev/null || echo "ℹ️ Bucket may already exist or be owned by you."
+    2>&1) || {
+    if echo "$CREATE_OUTPUT" | grep -qi "BucketAlreadyOwnedByYou"; then
+      echo "ℹ️ Bucket already exists and is owned by you."
+    else
+      echo "❌ Failed to create S3 bucket: $CREATE_OUTPUT"
+      exit 1
+    fi
+  }
 fi
 
 # ----- Verify S3 bucket ownership -----
 echo "🔍 Verifying S3 bucket ownership..."
-aws s3api head-bucket --bucket "$FULL_BUCKET_NAME" --expected-bucket-owner "$ACCOUNT_ID"
+aws s3api head-bucket --bucket "$FULL_BUCKET_NAME" --expected-bucket-owner "$ACCOUNT_ID" --region "$REGION"
 if [ $? -ne 0 ]; then
     echo "❌ S3 bucket $FULL_BUCKET_NAME is not owned by account $ACCOUNT_ID"
+    echo "💡 提示: 如果是首次运行，请等待几秒后重试。如果持续失败，请检查 AWS_REGION 是否与 aws configure get region 一致。"
     exit 1
 fi
 echo "✅ S3 bucket ownership verified"

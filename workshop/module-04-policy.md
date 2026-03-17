@@ -258,6 +258,7 @@ with open('deployment_info.yaml') as f:
     info = yaml.safe_load(f)
 print(info.get('policy_engine_id', 'N/A'))
 ")
+echo "Policy Engine ID: $PE_ID"
 
 # 列出 Policy 规则
 aws bedrock-agentcore-control list-policies \
@@ -265,14 +266,47 @@ aws bedrock-agentcore-control list-policies \
   --query 'policies[].{name:name, status:status}'
 ```
 
-所有规则应该显示 `ACTIVE` 状态。
+您应该看到 4 条规则全部为 ACTIVE：
+```json
+[
+    { "name": "CustomerSupport_AllowCheckWarranty",  "status": "ACTIVE" },
+    { "name": "CustomerSupport_AllowCouponUnder500", "status": "ACTIVE" },
+    { "name": "CustomerSupport_AllowWebSearch",      "status": "ACTIVE" },
+    { "name": "CustomerSupport_DenyCouponOver500",   "status": "ACTIVE" }
+]
+```
 
-### 在 Console 中查看
+### 查看单条 Policy 的 Cedar 规则内容
 
-打开 AWS Console → Bedrock AgentCore → Policy Engines，可以看到：
-- Policy Engine 详情
-- 4 个 Cedar 规则
-- 每个规则的状态
+```bash
+# 获取某条 Policy 的详情（包含 Cedar statement）
+POLICY_ID=$(aws bedrock-agentcore-control list-policies \
+  --policy-engine-id $PE_ID \
+  --query 'policies[?name==`CustomerSupport_AllowCouponUnder500`].policyId' \
+  --output text)
+
+aws bedrock-agentcore-control get-policy \
+  --policy-engine-id $PE_ID \
+  --policy-id $POLICY_ID
+```
+
+### 验证 Gateway 关联
+
+```bash
+# 确认 Policy Engine 已关联到 Gateway
+GATEWAY_ID=$(cat deployment_info.yaml | grep gateway_id | awk '{print $2}')
+aws bedrock-agentcore-control get-gateway \
+  --gateway-identifier $GATEWAY_ID \
+  --query 'policyEngineConfiguration'
+```
+
+应该返回：
+```json
+{
+    "arn": "arn:aws:bedrock-agentcore:...:policy-engine/CustomerSupport_PolicyEngine-...",
+    "mode": "ENFORCE"
+}
+```
 
 ---
 

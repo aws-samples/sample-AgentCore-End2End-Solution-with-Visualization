@@ -167,17 +167,23 @@ npm --version
 3. 在左侧导航栏选择 **Model access**
 4. 点击 **Manage model access**
 5. 勾选以下模型：
-   - ✅ **Anthropic Claude 3.5 Haiku**（用于 Agent 推理）
+   - ✅ **Anthropic Claude Haiku 4.5**（用于 Agent 推理，代码中使用 cross-region 推理 `global.anthropic.claude-haiku-4-5-20251001-v1:0`）
    - ✅ **Amazon Titan Text Embeddings V2**（用于 Knowledge Base 向量化）
 6. 点击 **Save changes**
 
 > ⏳ 模型启用可能需要几分钟时间。
 
+> 📁 **模型配置位置**：`agent/customer_support_agent.py` 第 34 行
+> ```python
+> MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+> ```
+> 使用 `global.` 前缀表示 cross-region inference，Bedrock 会自动路由到最近的可用 Region。
+
 验证模型是否可用：
 
 ```bash
 aws bedrock list-foundation-models \
-  --query 'modelSummaries[?contains(modelId, `claude`) || contains(modelId, `titan-embed`)].modelId' \
+  --query 'modelSummaries[?contains(modelId, `claude-haiku-4-5`) || contains(modelId, `titan-embed`)].modelId' \
   --output table
 ```
 
@@ -186,15 +192,26 @@ aws bedrock list-foundation-models \
 ## 0.4 克隆项目代码
 
 ```bash
-git clone <repository-url>
-cd agentcore-sample-with-visualization
+git clone https://github.com/aws-samples/sample-AgentCore-End2End-Solution-with-Visualization.git
+cd sample-AgentCore-End2End-Solution-with-Visualization
 ```
 
 ### 安装 Python 依赖
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
+
+> 💡 如果遇到 `No module named pip` 错误，尝试：
+> ```bash
+> python3 -m ensurepip --upgrade
+> pip3 install -r requirements.txt
+> ```
+> 或者在 conda 环境中：
+> ```bash
+> conda install pip
+> pip3 install -r requirements.txt
+> ```
 
 这会安装以下核心依赖：
 
@@ -245,44 +262,102 @@ agentcore-sample-with-visualization/
 
 ---
 
-## 0.6 理解配置文件
+## 0.6 理解部署流程与配置
 
-打开 `config.yaml`，了解关键配置项：
+本项目的部署分为两个阶段，全部通过脚本自动化完成，无需手动在 AWS Console 中创建任何资源。
+
+### 部署阶段概览
+
+```
+阶段 1: bash prereq.sh（约 5-10 分钟）
+─────────────────────────────────────────
+  ① 创建 S3 Bucket，上传 Lambda 代码包
+  ② 部署 CloudFormation 栈: CustomerSupportStackInfra
+     → DynamoDB 表（Warranty + Customer，含测试数据）
+     → Lambda 函数（warranty check + web search）
+     → IAM Roles（Runtime Role + Gateway Role）
+     → SSM Parameters（存储各资源的 ARN 和配置）
+  ③ 部署 CloudFormation 栈: CustomerSupportStackCognito
+     → Cognito User Pool
+     → Machine Client（用于 Runtime → Gateway 的 M2M 认证）
+     → Web Client（用于前端用户登录）
+     → OAuth2 Resource Server 和 Domain
+
+阶段 2: python deploy.py（约 10-15 分钟）
+─────────────────────────────────────────
+  ① 检查阶段 1 的资源是否就绪（读取 SSM Parameters）
+  ② 配置 Cognito（启用 Web Client 的密码登录、创建测试用户）
+  ③ 配置 IAM 权限（为 Runtime Role 添加 Gateway/Memory/ECR 权限）
+  ④ 创建 AgentCore Memory（双策略：用户偏好 + 语义记忆）
+  ⑤ 创建 AgentCore Gateway（MCP 协议，添加 Lambda 工具 Target）
+  ⑥ 部署 CouponTool Lambda（代金券批复工具，添加为 Gateway Target）
+  ⑦ 创建 Policy Engine（4 条 Cedar 规则，关联到 Gateway）
+  ⑧ 部署 AgentCore Runtime（CodeBuild 构建容器 → ECR → Runtime）
+  ⑨ 构建 React 前端（npm build → S3 → CloudFront）
+  ⑩ 验证 Policy 规则状态，等待 IAM 权限传播
+```
+
+`deploy.py` 是幂等的 — 重复运行会跳过已创建的资源，只处理缺失的部分。如果中途失败，修复问题后重新运行即可。
+
+### 配置文件
+
+> 📁 **源文件**：`config.yaml`
+
+所有部署参数集中在 `config.yaml` 中，`deploy.py` 读取此文件决定资源名称和行为：
 
 ```yaml
 # 项目配置
 project:
   name: agentcore-demo
+  # region: us-east-1  # 可选，默认使用 AWS CLI 配置的 Region
 
-# Cognito 认证
+# Cognito 认证 — 测试用户的用户名和密码
 cognito:
   test_user:
     username: testuser
     password: MyPassword123!
 
-# AgentCore Memory
+# AgentCore Memory — 名称和描述
 memory:
   name: CustomerSupportMemory
+  description: Memory for customer support agent with preferences and semantic storage
 
-# AgentCore Gateway
+# AgentCore Gateway — 名称，deploy.py 会自动配置 MCP 协议和 JWT 认证
 gateway:
   name: customersupport-gw
 
-# AgentCore Runtime
+# AgentCore Runtime — Agent 代码入口和依赖文件
 runtime:
   agent_name: customer_support_agent
-  entrypoint: agent/customer_support_agent.py
+  entrypoint: agent/customer_support_agent.py        # Agent 主文件
+  requirements_file: agent/requirements.txt          # Agent 运行时依赖
 
-# Policy Engine
+# Policy Engine — Cedar 策略引擎配置
 policy:
   engine_name: CustomerSupport_PolicyEngine
-  mode: ENFORCE          # ENFORCE = 实际执行; LOG_ONLY = 仅记录
-  coupon_limit: 500      # 代金券金额限制（美元）
+  mode: ENFORCE          # ENFORCE = 实际拦截; LOG_ONLY = 仅记录不拦截
+  coupon_limit: 500      # 代金券金额限制（美元），< 500 允许，≥ 500 拒绝
+
+# CouponTool Lambda — 代金券批复工具的独立 Lambda
+coupon_lambda:
+  name: CustomerSupport_CouponTool
+  target_name: CouponToolTarget    # 在 Gateway 中的 Target 名称
 
 # 前端部署
 frontend:
-  deploy_to_s3: true     # true = 部署到 CloudFront
+  build_command: npm run build
+  build_dir: dist
+  deploy_to_s3: true     # true = 构建并部署到 S3 + CloudFront
 ```
+
+### 资源信息持久化
+
+部署完成后，所有创建的资源 ID 和 ARN 会保存到两个地方：
+
+| 存储位置 | 用途 |
+|----------|------|
+| `deployment_info.yaml`（本地文件） | 供 `cleanup.py` 清理资源使用 |
+| SSM Parameter Store（AWS 云端） | 供 Agent Runtime 在运行时读取配置 |
 
 ---
 
@@ -296,7 +371,7 @@ frontend:
 - [ ] Python 3.10+ 已安装
 - [ ] Node.js 18+ 已安装
 - [ ] Python 依赖已安装（`pip install -r requirements.txt`）
-- [ ] Bedrock 模型已启用（Claude 3.5 Haiku + Titan Embeddings V2）
+- [ ] Bedrock 模型已启用（Claude Haiku 4.5 + Titan Embeddings V2）
 - [ ] 项目代码已克隆
 
 ---
