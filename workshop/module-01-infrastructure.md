@@ -380,11 +380,12 @@ mcp_client = MCPClient(lambda: streamablehttp_client(
 用户浏览器                    AWS Cloud
 ┌──────────┐                 ┌──────────────────────────────────────┐
 │ 输入密码  │ ──Web Client──▶│ Cognito: USER_PASSWORD_AUTH          │
-│          │ ◀──token────── │ → 返回 Access Token                  │
+│          │ ◀──token────── │ → 返回 Access Token (含用户身份)     │
 │          │                 └──────────────────────────────────────┘
 │          │                 ┌──────────────────────────────────────┐
 │ 发送对话  │ ──token──────▶ │ AgentCore Runtime                    │
-│          │                 │   ↓ 收到用户请求                     │
+│          │                 │   ↓ 解码 JWT，提取用户身份 (如 Jim)  │
+│          │                 │   ↓ 用户身份作为 Memory actor_id     │
 │          │                 │   ↓ 用 Machine Client credentials    │
 │          │                 │   ↓ 获取 M2M token                   │
 │          │                 │   ↓ 用 M2M token 调用 Gateway        │
@@ -396,11 +397,42 @@ mcp_client = MCPClient(lambda: streamablehttp_client(
 └──────────┘                 └──────────────────────────────────────┘
 ```
 
-### 为什么不直接用用户 token 调 Gateway？
+### 用户身份传递
 
-- **安全隔离**：用户 token 只到 Runtime 层，不暴露给下游服务
-- **权限分离**：Machine Client 可以有不同于用户的权限范围（scope）
-- **M2M 标准模式**：服务间调用使用 `client_credentials` 是 OAuth2 的标准实践
+> 📁 **源文件**：`agent/customer_support_agent.py` → `extract_user_identity` 函数 + `invoke` 函数
+
+Runtime 收到用户的 JWT 后，会解码 token 提取用户身份（`username`、`email`、`sub`），然后：
+
+1. 用户身份作为 Memory 的 `actor_id` — 每个用户有独立的记忆空间
+2. 用户身份记录到日志 — 方便审计和调试
+3. Gateway 调用使用 Machine Client token — 标准 M2M 模式
+
+```python
+# agent/customer_support_agent.py → invoke 函数
+# 1. 从用户 JWT 中提取身份
+user_token = user_auth_header.replace("Bearer ", "")
+user_identity = extract_user_identity(user_token)
+actor_id = user_identity.get("username", "unknown_user")  # 如 "testuser@example.com"
+
+# 2. 用真实用户身份配置 Memory（每个用户独立的记忆空间）
+memory_config = AgentCoreMemoryConfig(
+    memory_id=MEMORY_ID,
+    actor_id=actor_id,  # "testuser@example.com" 而非硬编码的 "customer_001"
+    ...
+)
+```
+
+这样不同用户登录后，Memory 会自动隔离 — Jim 看不到 Sarah 的对话记忆。
+
+### 为什么优先用 Machine Client token 调 Gateway？
+
+> 📁 **源文件**：`agent/customer_support_agent.py` → `get_gateway_token` 函数
+
+代码中优先使用 Machine Client 的 M2M token 调用 Gateway，但如果获取失败会 fallback 到用户 token：
+
+- **权限分离**：Machine Client 使用独立的 OAuth2 scope（`client_credentials` 流程），与用户的权限范围解耦
+- **M2M 标准模式**：服务间调用使用 `client_credentials` 是 OAuth2 的推荐实践
+- **容错设计**：即使 Machine token 获取失败，系统仍能通过用户 token 正常工作
 
 ---
 
