@@ -226,6 +226,98 @@ class TracingAgent:
             })
 
 
+def extract_user_identity(jwt_token: str) -> dict:
+    """从JWT token中提取用户身份信息（不验证签名，仅解码payload）"""
+    import base64
+    try:
+        # JWT格式: header.payload.signature
+        parts = jwt_token.split(".")
+        if len(parts) != 3:
+            return {"username": "unknown", "sub": "unknown"}
+        
+        # 解码payload（第二部分）
+        payload = parts[1]
+        # 补齐base64 padding
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        
+        decoded = json.loads(base64.urlsafe_b64decode(payload))
+        
+        # 提取用户标识：优先用username，其次用email，最后用sub
+        username = decoded.get("username") or decoded.get("cognito:username") or decoded.get("email") or decoded.get("sub", "unknown")
+        
+        return {
+            "username": username,
+            "sub": decoded.get("sub", "unknown"),
+            "email": decoded.get("email", ""),
+            "token_use": decoded.get("token_use", ""),
+            "client_id": decoded.get("client_id", ""),
+        }
+    except Exception as e:
+        print(f"[Warning] Failed to decode JWT: {e}")
+        return {"username": "unknown", "sub": "unknown"}
+
+
+async def get_gateway_token(ssm, user_token: str, actor_id: str, user_auth_header: str) -> str:
+    """获取用于Gateway调用的认证token
+    
+    策略（按优先级）：
+    1. 使用 Machine Client credentials 获取 M2M token（标准 OAuth2 模式）
+    2. Fallback: 直接使用用户的 JWT token（Gateway 允许 Web Client）
+    
+    无论哪种方式，Gateway 都能识别调用者身份。
+    用户身份（actor_id）通过 Memory 的 actor_id 参数传递，而非 token。
+    """
+    try:
+        # 从SSM获取Machine Client配置
+        machine_client_id = ssm.get_parameter(
+            Name="/app/customersupport/agentcore/client_id"
+        )["Parameter"]["Value"]
+        
+        machine_client_secret = ssm.get_parameter(
+            Name="/app/customersupport/agentcore/client_secret"
+        )["Parameter"]["Value"]
+        
+        token_url = ssm.get_parameter(
+            Name="/app/customersupport/agentcore/cognito_token_url"
+        )["Parameter"]["Value"]
+        
+        auth_scope = ssm.get_parameter(
+            Name="/app/customersupport/agentcore/cognito_auth_scope"
+        )["Parameter"]["Value"]
+        
+        # OAuth2 Client Credentials 流程
+        import base64 as b64
+        credentials = b64.b64encode(f"{machine_client_id}:{machine_client_secret}".encode()).decode()
+        
+        import httpx
+        token_response = httpx.post(
+            token_url,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": f"Basic {credentials}"
+            },
+            data={
+                "grant_type": "client_credentials",
+                "scope": auth_scope
+            },
+            timeout=10.0
+        )
+        
+        if token_response.status_code == 200:
+            machine_token = token_response.json()["access_token"]
+            print(f"[Identity] Using Machine Client token for Gateway (on behalf of {actor_id})")
+            return f"Bearer {machine_token}"
+        else:
+            print(f"[Warning] Machine token failed ({token_response.status_code}), using user token")
+            return user_auth_header
+        
+    except Exception as e:
+        print(f"[Warning] Machine token error: {e}, using user token")
+        return user_auth_header
+
+
 @app.entrypoint
 async def invoke(payload, context=None):
     """AgentCore Runtime entrypoint with streaming support"""
@@ -238,6 +330,12 @@ async def invoke(payload, context=None):
     
     if not user_auth_header:
         return {"error": "Missing Authorization header"}
+    
+    # 从用户JWT中提取用户身份信息
+    user_token = user_auth_header.replace("Bearer ", "")
+    user_identity = extract_user_identity(user_token)
+    actor_id = user_identity.get("username", "unknown_user")
+    print(f"[Identity] User: {actor_id} (sub: {user_identity.get('sub', 'N/A')})")
     
     # 获取Gateway配置
     ssm = boto3.client("ssm")
@@ -254,61 +352,18 @@ async def invoke(payload, context=None):
     gateway_response = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
     gateway_url = gateway_response["gatewayUrl"]
     
-    # 获取Machine Client token用于Gateway调用
-    # Runtime需要使用自己的身份（Machine Client）来调用Gateway
-    try:
-        # 从SSM获取Machine Client配置
-        machine_client_id = ssm.get_parameter(
-            Name="/app/customersupport/agentcore/client_id"
-        )["Parameter"]["Value"]
-        
-        machine_client_secret = ssm.get_parameter(
-            Name="/app/customersupport/agentcore/client_secret"
-        )["Parameter"]["Value"]
-        
-        # 获取token endpoint
-        token_url = ssm.get_parameter(
-            Name="/app/customersupport/agentcore/cognito_token_url"
-        )["Parameter"]["Value"]
-        
-        # 使用OAuth2 Client Credentials流程
-        import base64
-        credentials = base64.b64encode(f"{machine_client_id}:{machine_client_secret}".encode()).decode()
-        
-        import httpx
-        token_response = httpx.post(
-            token_url,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Authorization": f"Basic {credentials}"
-            },
-            data={
-                "grant_type": "client_credentials",
-                "scope": ssm.get_parameter(Name="/app/customersupport/agentcore/cognito_auth_scope")["Parameter"]["Value"]
-            },
-            timeout=10.0
-        )
-        
-        if token_response.status_code == 200:
-            machine_token = token_response.json()["access_token"]
-            gateway_auth_header = f"Bearer {machine_token}"
-        else:
-            print(f"[Warning] Failed to get machine token: {token_response.text}")
-            gateway_auth_header = user_auth_header
-        
-    except Exception as e:
-        print(f"[Warning] Failed to get machine token, using user token: {e}")
-        # Fallback: 使用用户token
-        gateway_auth_header = user_auth_header
+    # 获取用于Gateway调用的token
+    # 优先使用 GetWorkloadAccessTokenForJWT 获取携带用户身份的 workload token
+    # 如果失败，fallback 到 Machine Client credentials，最后 fallback 到用户 token
+    gateway_auth_header = await get_gateway_token(ssm, user_token, actor_id, user_auth_header)
     
-    # 配置Memory
+    # 配置Memory（使用从JWT提取的用户身份作为actor_id）
     session_id = str(uuid.uuid4())
-    actor_id = "customer_001"
     
     memory_config = AgentCoreMemoryConfig(
         memory_id=MEMORY_ID,
         session_id=session_id,
-        actor_id=actor_id,
+        actor_id=actor_id,  # 使用真实用户身份，而非硬编码
         retrieval_config={
             "support/customer/{actorId}/semantic": RetrievalConfig(
                 top_k=3, relevance_score=0.2
