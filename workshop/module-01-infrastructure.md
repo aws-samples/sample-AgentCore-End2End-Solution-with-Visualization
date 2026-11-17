@@ -488,12 +488,12 @@ aws cloudformation describe-stack-events \
 ### pip install 报错 "No matching distribution"
 
 ```
-ERROR: No matching distribution found for bedrock-agentcore-sdk-python
+ERROR: No matching distribution found for <package-name>
 ```
 
-原因：旧版 `requirements.txt` 中的包名有误。确保使用 workshop 分支的最新代码：
+原因：本地代码过旧，`requirements.txt` 中包含已更正的包名。请拉取 `main` 分支最新代码后重新安装（正确的包名为 `bedrock-agentcore` 和 `strands-agents-tools`）：
 ```bash
-git checkout workshop
+git checkout main && git pull
 pip3 install -r requirements.txt
 ```
 

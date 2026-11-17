@@ -220,9 +220,10 @@ pip3 install -r requirements.txt
 | `boto3` | AWS SDK for Python |
 | `pyyaml` | 配置文件解析 |
 | `rich` | 终端美化输出 |
-| `bedrock-agentcore-sdk-python` | AgentCore SDK |
+| `bedrock-agentcore` | AgentCore SDK |
 | `bedrock-agentcore-starter-toolkit` | AgentCore 部署工具 |
 | `strands-agents` | Strands Agent 框架 |
+| `strands-agents-tools` | Strands 内置工具集 |
 
 ---
 
